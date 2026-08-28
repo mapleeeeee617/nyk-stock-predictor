@@ -65,23 +65,54 @@ def make_chart(prices: pd.DataFrame, forecast: dict, path: Path) -> None:
 
 HTML_TEMPLATE = Template("""<!doctype html>
 <html lang="ja"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>{{ company }} 株価予測レポート {{ generated }}</title>
 <style>
- body{font-family:"Segoe UI","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;margin:0;background:#f4f5f7;color:#1c1c1c}
- .wrap{max-width:960px;margin:0 auto;padding:24px}
- h1{font-size:1.4rem;margin:0 0 4px} h2{font-size:1.1rem;margin:28px 0 10px;border-left:4px solid #1f3b73;padding-left:8px}
+ *,*::before,*::after{box-sizing:border-box}
+ html{-webkit-text-size-adjust:100%}
+ body{font-family:"Segoe UI","Hiragino Kaku Gothic ProN",Meiryo,system-ui,sans-serif;
+      margin:0;background:#f4f5f7;color:#1c1c1c;line-height:1.6;
+      -webkit-font-smoothing:antialiased}
+ .wrap{max-width:960px;margin:0 auto;padding:clamp(14px,4vw,28px)}
+ h1{font-size:clamp(1.15rem,4.5vw,1.5rem);margin:0 0 4px;line-height:1.35}
+ h2{font-size:clamp(1rem,3.5vw,1.15rem);margin:26px 0 10px;
+    border-left:4px solid #1f3b73;padding-left:8px}
  .muted{color:#666;font-size:.85rem}
- .card{background:#fff;border:1px solid #e2e2e2;border-radius:8px;padding:16px;margin-top:12px}
+ .card{background:#fff;border:1px solid #e2e2e2;border-radius:8px;
+       padding:clamp(12px,3.5vw,18px);margin-top:12px}
+ .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px}
  table{border-collapse:collapse;width:100%;font-size:.92rem}
- th,td{border:1px solid #e0e0e0;padding:7px 9px;text-align:right}
- th{background:#eef1f6;text-align:center} td.l,th.l{text-align:left}
+ th,td{border:1px solid #e0e0e0;padding:7px 9px;text-align:right;white-space:nowrap}
+ th{background:#eef1f6;text-align:center}
+ td.l,th.l{text-align:left}
  .up{color:#1a7f37;font-weight:600}.down{color:#c0392b;font-weight:600}
  .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.8rem;background:#eef1f6}
- img{max-width:100%;height:auto;border:1px solid #e2e2e2;border-radius:6px}
- ul{margin:6px 0 0;padding-left:20px} li{margin:3px 0}
- .disc{background:#fff8e5;border:1px solid #f0dca0;border-radius:6px;padding:12px;font-size:.82rem;margin-top:24px}
- a{color:#1f3b73}
+ img{max-width:100%;height:auto;display:block;border:1px solid #e2e2e2;border-radius:6px}
+ ul{margin:6px 0 0;padding-left:1.25em} li{margin:4px 0;overflow-wrap:anywhere}
+ a{color:#1f3b73;overflow-wrap:anywhere}
+ .disc{background:#fff8e5;border:1px solid #f0dca0;border-radius:6px;
+       padding:12px;font-size:.82rem;margin-top:24px}
+ .scrollhint{display:none;font-size:.78rem;color:#888;margin:2px 2px 0}
+ @media (max-width:640px){
+   body{line-height:1.5}
+   th,td{padding:6px 7px;font-size:.82rem}
+   .card{border-radius:6px}
+   .scrollhint{display:block}
+ }
+ @media (prefers-color-scheme:dark){
+   body{background:#15171a;color:#e6e6e6}
+   .card{background:#1e2126;border-color:#333}
+   h2{border-left-color:#5b8def}
+   th{background:#262a30}
+   th,td{border-color:#333}
+   .muted,.scrollhint{color:#9aa0a6}
+   .pill{background:#262a30}
+   a{color:#8ab4ff}
+   img{border-color:#333}
+   .up{color:#4ecb71}.down{color:#ff6b6b}
+   .disc{background:#2b2717;border-color:#5c5326}
+ }
 </style></head><body><div class="wrap">
 
 <h1>{{ company }}（{{ ticker }}） 株価予測レポート</h1>
@@ -89,6 +120,8 @@ HTML_TEMPLATE = Template("""<!doctype html>
 
 <h2>1. 予測サマリー（モンテカルロ 20,000 パス）</h2>
 <div class="card">
+<div class="scrollhint">← 表は横スクロールできます →</div>
+<div class="table-scroll">
 <table>
 <tr><th class="l">ホライズン</th><th>予測中央値</th><th>期待リターン</th><th>下限(10%)</th><th>上限(90%)</th><th>上昇確率</th>{% if f.arima_available %}<th>ARIMA点予測</th>{% endif %}</tr>
 {% for name, h in f.horizons.items() %}
@@ -103,11 +136,12 @@ HTML_TEMPLATE = Template("""<!doctype html>
 </tr>
 {% endfor %}
 </table>
+</div>
 <p class="muted">年率換算ドリフト {{ f.total_drift_annualized_pct }}%（ベースライン {{ f.baseline_drift_pct }}% ＋ ニュース補正 {{ f.sentiment_drift_pct }}% ＋ 平均回帰補正 {{ f.meanrev_drift_pct }}%） ／ 年率ボラティリティ {{ f.annualized_vol_pct }}% ／ 直近トレンド（年率）{{ f.recent_trend_annualized_pct }}%</p>
 </div>
 
 <h2>2. チャート</h2>
-<div class="card"><img src="{{ chart_name }}" alt="price chart"></div>
+<div class="card"><img src="{{ chart_name }}" alt="price chart" loading="lazy"></div>
 
 <h2>3. テクニカル状況</h2>
 <div class="card">
