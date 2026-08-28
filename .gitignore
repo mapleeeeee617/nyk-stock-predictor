@@ -12,6 +12,8 @@ venv/
 output/
 data/
 logs/
+public/
+_jptest.png
 
 # OS / エディタ
 .DS_Store

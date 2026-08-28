@@ -1,0 +1,26 @@
+name: Netlify rebuild (daily)
+
+# 平日 18:15 JST（= 09:15 UTC）に Netlify のビルドフックを叩き、
+# 最新のニュース・株価でレポートを再生成させる。
+# 事前にリポジトリの Settings > Secrets and variables > Actions で
+# シークレット NETLIFY_BUILD_HOOK に Netlify のビルドフック URL を登録すること。
+
+on:
+  schedule:
+    - cron: "15 9 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Netlify build hook
+        run: |
+          if [ -z "${NETLIFY_BUILD_HOOK}" ]; then
+            echo "::error::シークレット NETLIFY_BUILD_HOOK が未設定です。"
+            exit 1
+          fi
+          curl -fsSL -X POST -d '{}' "${NETLIFY_BUILD_HOOK}"
+          echo "Netlify ビルドをトリガーしました。"
+        env:
+          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}

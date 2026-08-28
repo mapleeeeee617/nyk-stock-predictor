@@ -1,0 +1,26 @@
+# Netlify 設定
+# リポジトリを Netlify に連携すると、ビルド時に build_site.py が実行され
+# public/ 配下の静的サイト（予測レポート）が配信される。
+
+[build]
+  command = "pip install -r requirements.txt && python build_site.py"
+  publish = "public"
+
+[build.environment]
+  # Netlify ビルドイメージの Python バージョン
+  PYTHON_VERSION = "3.12"
+  PIP_DISABLE_PIP_VERSION_CHECK = "1"
+
+# セキュリティ／キャッシュ用ヘッダ
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/chart.png"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"

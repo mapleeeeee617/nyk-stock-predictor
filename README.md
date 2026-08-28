@@ -71,6 +71,29 @@ powershell -ExecutionPolicy Bypass -File .\register_task.ps1
 .venv\Scripts\python.exe backtest.py --step 5 --start 300
 ```
 
+### Web公開（Netlify）
+
+ビルド時に `build_site.py` が走り、`public/index.html` を生成して配信します。
+
+1. Netlify で **Add new site → Import an existing project** からこのリポジトリを連携
+   （`netlify.toml` によりビルド設定は自動認識されます）
+2. デプロイ完了後、`https://<サイト名>.netlify.app/` でレポートが見られます
+3. **日次更新**：
+   - Netlify 側で **Build hooks** を1つ作成し、その URL をコピー
+   - GitHub リポジトリの **Settings → Secrets and variables → Actions** で
+     シークレット `NETLIFY_BUILD_HOOK` にその URL を登録
+   - 以降、GitHub Actions（`.github/workflows/netlify-rebuild.yml`）が
+     平日 09:15 UTC（18:15 JST）に Netlify を再ビルドします
+
+ローカルでのプレビュー生成:
+
+```bat
+.venv\Scripts\python.exe build_site.py
+```
+
+> Netlify はビルド時のみ更新されるため、リアルタイム更新ではなく1日1回程度の更新です。
+> 常時ローカル運用ならタスクスケジューラ版（上記）で十分です。
+
 ---
 
 ## 予測の読み方
@@ -98,10 +121,15 @@ powershell -ExecutionPolicy Bypass -File .\register_task.ps1
 ```
 nyk-stock-predictor/
 ├─ run.py                  エントリポイント（収集→分析→予測→レポート）
+├─ build_site.py           Netlify 用: public/ に静的サイトを生成
 ├─ backtest.py             精度検証
 ├─ register_task.ps1       タスク スケジューラ登録/解除
 ├─ run_scheduled.cmd       スケジュール実行ラッパー（ログ付き）
+├─ netlify.toml            Netlify ビルド設定
+├─ runtime.txt             Netlify の Python バージョン
 ├─ requirements.txt
+├─ .github/workflows/
+│  └─ netlify-rebuild.yml  平日18:15 JST に Netlify を再ビルド
 ├─ nyk_predictor/
 │  ├─ config.py            銘柄・URL・モデルパラメータ
 │  ├─ prices.py            株価取得・テクニカル指標
@@ -109,9 +137,10 @@ nyk-stock-predictor/
 │  ├─ sentiment.py         日本語センチメント辞書・イベント分類
 │  ├─ forecast.py          モンテカルロ + ARIMA
 │  └─ report.py            チャート・HTML・JSON 生成
-├─ data/                   価格キャッシュ
-├─ output/                 レポート（*_latest がつねに最新）
-└─ logs/                   スケジュール実行ログ
+├─ data/                   価格キャッシュ（Git 管理外）
+├─ output/                 ローカル実行のレポート（Git 管理外）
+├─ public/                 Netlify ビルド生成物（Git 管理外）
+└─ logs/                   スケジュール実行ログ（Git 管理外）
 ```
 
 ## パラメータ調整

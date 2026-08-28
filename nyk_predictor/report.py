@@ -33,17 +33,19 @@ def make_chart(prices: pd.DataFrame, forecast: dict, path: Path) -> None:
         2, 1, figsize=(11, 7), gridspec_kw={"height_ratios": [3, 1]}, sharex=False
     )
 
-    ax1.plot(ind.index, ind["close"], color="#1f3b73", lw=1.6, label="終値")
-    ax1.plot(ind.index, ind["sma25"], color="#e08a00", lw=1.0, label="25日移動平均")
-    ax1.plot(ind.index, ind["sma75"], color="#8a8a8a", lw=1.0, label="75日移動平均")
+    # チャートのラベルは英語（実行環境に日本語フォントが無くても文字化けしないため）
+    ax1.plot(ind.index, ind["close"], color="#1f3b73", lw=1.6, label="Close")
+    ax1.plot(ind.index, ind["sma25"], color="#e08a00", lw=1.0, label="SMA 25")
+    ax1.plot(ind.index, ind["sma75"], color="#8a8a8a", lw=1.0, label="SMA 75")
 
     cone = forecast["cone"]
-    ax1.plot(future_dates, cone["median"], color="#c0392b", lw=1.6, ls="--", label="予測中央値")
+    ax1.plot(future_dates, cone["median"], color="#c0392b", lw=1.6, ls="--", label="Forecast median")
     ax1.fill_between(future_dates, cone["p10"], cone["p90"], color="#c0392b", alpha=0.12,
-                     label="予測レンジ(10–90%)")
+                     label="Forecast 10-90%")
     ax1.axvline(last_date, color="#999", lw=0.8, ls=":")
-    ax1.set_title(f"{config.COMPANY_JP}（{config.TICKER}）  株価と予測  基準日 {forecast['as_of']}")
-    ax1.set_ylabel("株価（円）")
+    ax1.set_title(f"{config.TICKER}  Nippon Yusen (NYK Line)  -  price & Monte Carlo forecast"
+                  f"  (as of {forecast['as_of']})")
+    ax1.set_ylabel("Price (JPY)")
     ax1.legend(loc="upper left", fontsize=8, ncol=2)
     ax1.grid(alpha=0.25)
     ax1.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
@@ -158,18 +160,9 @@ def _text_summary(ctx: dict) -> str:
     return "\n".join(lines)
 
 
-def write_reports(prices, technical: dict, news_items, news_score: dict,
-                  forecast: dict) -> dict:
+def _build_ctx(technical, news_items, news_score, forecast, chart_name, now):
     from . import __version__
-
-    now = dt.datetime.now()
-    stamp = now.strftime("%Y%m%d_%H%M")
-    chart_name = f"chart_{stamp}.png"
-    make_chart(prices, forecast, config.OUTPUT_DIR / chart_name)
-    # latest 用にも複製
-    make_chart(prices, forecast, config.OUTPUT_DIR / "chart_latest.png")
-
-    ctx = {
+    return {
         "company": config.COMPANY_JP,
         "ticker": config.TICKER,
         "generated": now.strftime("%Y-%m-%d %H:%M"),
@@ -184,12 +177,9 @@ def write_reports(prices, technical: dict, news_items, news_score: dict,
         "version": __version__,
     }
 
-    html = HTML_TEMPLATE.render(**ctx)
-    (config.OUTPUT_DIR / f"report_{stamp}.html").write_text(html, encoding="utf-8")
-    latest_html = html.replace(chart_name, "chart_latest.png")
-    (config.OUTPUT_DIR / "report_latest.html").write_text(latest_html, encoding="utf-8")
 
-    payload = {
+def _json_payload(ctx, technical, news_score, forecast):
+    return {
         "generated": ctx["generated"],
         "ticker": config.TICKER,
         "technical": technical,
@@ -197,6 +187,45 @@ def write_reports(prices, technical: dict, news_items, news_score: dict,
         "forecast": forecast,
         "news": ctx["news_list"],
     }
+
+
+def render_site(prices, technical: dict, news_items, news_score: dict,
+                forecast: dict, dest) -> str:
+    """Netlify などで配信する静的サイトを dest ディレクトリへ生成する。
+
+    dest/index.html, dest/chart.png, dest/forecast.json を書き出す。
+    """
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    now = dt.datetime.now()
+
+    make_chart(prices, forecast, dest / "chart.png")
+    ctx = _build_ctx(technical, news_items, news_score, forecast, "chart.png", now)
+    html = HTML_TEMPLATE.render(**ctx)
+    (dest / "index.html").write_text(html, encoding="utf-8")
+    (dest / "forecast.json").write_text(
+        json.dumps(_json_payload(ctx, technical, news_score, forecast),
+                   ensure_ascii=False, indent=2), encoding="utf-8")
+    return str(dest / "index.html")
+
+
+def write_reports(prices, technical: dict, news_items, news_score: dict,
+                  forecast: dict) -> dict:
+    now = dt.datetime.now()
+    stamp = now.strftime("%Y%m%d_%H%M")
+    chart_name = f"chart_{stamp}.png"
+    make_chart(prices, forecast, config.OUTPUT_DIR / chart_name)
+    # latest 用にも複製
+    make_chart(prices, forecast, config.OUTPUT_DIR / "chart_latest.png")
+
+    ctx = _build_ctx(technical, news_items, news_score, forecast, chart_name, now)
+
+    html = HTML_TEMPLATE.render(**ctx)
+    (config.OUTPUT_DIR / f"report_{stamp}.html").write_text(html, encoding="utf-8")
+    latest_html = html.replace(chart_name, "chart_latest.png")
+    (config.OUTPUT_DIR / "report_latest.html").write_text(latest_html, encoding="utf-8")
+
+    payload = _json_payload(ctx, technical, news_score, forecast)
     (config.OUTPUT_DIR / f"forecast_{stamp}.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     (config.OUTPUT_DIR / "forecast_latest.json").write_text(
