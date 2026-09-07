@@ -1,15 +1,18 @@
 """株価データの取得とテクニカル指標。"""
 from __future__ import annotations
 
+import time
+
 import pandas as pd
 import numpy as np
 import yfinance as yf
 
 from . import config
 
+_CACHE = config.DATA_DIR / "prices.csv"
 
-def fetch_prices() -> pd.DataFrame:
-    """日次OHLCVを取得して DataFrame を返す（欠損日除去、キャッシュ保存）。"""
+
+def _download() -> pd.DataFrame:
     df = yf.download(
         config.TICKER,
         period=config.PRICE_HISTORY_PERIOD,
@@ -22,8 +25,42 @@ def fetch_prices() -> pd.DataFrame:
     df = df.rename(columns=str.lower)
     df = df.dropna(subset=["close"]).copy()
     df.index = pd.to_datetime(df.index)
-    df.to_csv(config.DATA_DIR / "prices.csv")
     return df
+
+
+def _load_cache() -> pd.DataFrame | None:
+    if not _CACHE.exists():
+        return None
+    try:
+        df = pd.read_csv(_CACHE, index_col=0, parse_dates=True)
+        return df if len(df) > 50 else None
+    except Exception:
+        return None
+
+
+def fetch_prices(retries: int = 4) -> pd.DataFrame:
+    """日次OHLCVを取得して DataFrame を返す。
+
+    Yahoo! Finance が一時的に 429 等を返すことがあるため指数バックオフで再試行し、
+    それでも失敗した場合は前回のキャッシュ（data/prices.csv）で継続する。
+    """
+    last_err: Exception | None = None
+    for attempt in range(retries):
+        try:
+            df = _download()
+            if len(df) > 50:
+                df.to_csv(_CACHE)
+                return df
+            last_err = RuntimeError(f"取得行数が不足 ({len(df)})")
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+        time.sleep(2 ** attempt + 1)
+
+    cached = _load_cache()
+    if cached is not None:
+        print(f"[prices] 取得失敗のためキャッシュを使用: {last_err}")
+        return cached
+    raise RuntimeError(f"株価データを取得できませんでした: {last_err}")
 
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:

@@ -20,8 +20,9 @@
 | センチメント分析 | 海運・財務ドメインに特化した**日本語キーワード辞書**でヘッドラインを採点、時間減衰で加重平均（外部LLM不要・完全オフライン処理） |
 | イベント検出 | 決算・株主総会・配当・自己株式取得・M&A・格付け・海運市況・海難事故・地政学 などを正規表現で分類 |
 | テクニカル分析 | 移動平均（25/75日）、RSI(14)、MACD、ボリンジャーバンド、ヒストリカル・ボラティリティ |
-| 予測モデル | 幾何ブラウン運動モンテカルロ（20,000パス）。ドリフト = 減衰トレンド + ARIMA示唆 + ニュース補正 + RSI平均回帰補正。参考に ARIMA(1,1,1) の点予測も併記 |
-| 出力 | `output/report_latest.html`（チャート付き）、`forecast_latest.json`、`summary_latest.txt`、`history.csv`（予測の時系列蓄積） |
+| 予測モデル | 幾何ブラウン運動モンテカルロ（20,000パス）。ドリフト = 減衰トレンド + ARIMA示唆 + ニュース補正 + RSI平均回帰補正。参考に ARIMA(1,1,1)+trend の点予測も併記（ホライズンごとに変化） |
+| 出力 | `output/report_latest.html`（チャート・用語解説付き）、`forecast_latest.json`、`summary_latest.txt`、`history.csv`（予測の時系列蓄積） |
+| レポート内解説 | モンテカルロ／ドリフト／ボラティリティ／ARIMA／センチメント／RSI 等の用語を各セクションと末尾「用語の説明」で平易に補足 |
 | 自動実行 | Windows タスク スケジューラに平日18:15実行を登録 |
 | 精度検証 | `backtest.py` で過去データの方向的中率・帯カバー率を評価 |
 
@@ -71,19 +72,35 @@ powershell -ExecutionPolicy Bypass -File .\register_task.ps1
 .venv\Scripts\python.exe backtest.py --step 5 --start 300
 ```
 
-### Web公開（Netlify）
+### Web公開＋自動更新（GitHub Actions → Netlify）
 
-ビルド時に `build_site.py` が走り、`public/index.html` を生成して配信します。
+**PC を起動していなくても** GitHub のクラウド上で情報源を取り直し、予測を再計算し、
+サイトを公開します。エンジンは `.github/workflows/forecast.yml`。
 
-1. Netlify で **Add new site → Import an existing project** からこのリポジトリを連携
-   （`netlify.toml` によりビルド設定は自動認識されます）
-2. デプロイ完了後、`https://<サイト名>.netlify.app/` でレポートが見られます
-3. **日次更新**：
-   - Netlify 側で **Build hooks** を1つ作成し、その URL をコピー
-   - GitHub リポジトリの **Settings → Secrets and variables → Actions** で
-     シークレット `NETLIFY_BUILD_HOOK` にその URL を登録
-   - 以降、GitHub Actions（`.github/workflows/netlify-rebuild.yml`）が
-     平日 09:15 UTC（18:15 JST）に Netlify を再ビルドします
+実行タイミング:
+- 平日 09:15 / 12:15 UTC（= 18:15 / 21:15 JST）の定期実行
+- `main` への push
+- 手動（Actions タブ → 「予測レポート更新」→ Run workflow）
+
+**公開先の設定**（GitHub リポジトリ → Settings → Secrets and variables → Actions）。
+下記 A か B のどちらか:
+
+| | 登録するシークレット | 取得場所 |
+|---|---|---|
+| **A（推奨・確実）** | `NETLIFY_AUTH_TOKEN` | Netlify → User settings → Applications → **New access token** |
+| | `NETLIFY_SITE_ID` | 対象サイト → Site configuration → Site information → **Site ID** |
+| **B** | `NETLIFY_BUILD_HOOK` | 対象サイト → Site configuration → **Build hooks** で発行した URL |
+
+- A: GitHub 側で `build_site.py` を実行し、`public/` を Netlify に直接デプロイ
+- B: GitHub は Netlify のビルドを起動するだけ（Netlify 側で `netlify.toml` に従い `build_site.py` を実行）
+- 未設定でもビルドは走り、生成物は Actions の artifact `forecast-site` から取得可能
+
+初回の Netlify サイト作成: **Add new site → Import an existing project** でこのリポジトリを連携
+（`netlify.toml` によりビルド設定は自動認識）。
+
+> ⚠️ GitHub は「リポジトリに60日間コミットが無い」と定期実行を自動停止します
+> （事前に所有者へメール通知あり）。停止された場合は Actions タブから再有効化するか、
+> 何かコミットしてください。
 
 ローカルでのプレビュー生成:
 
@@ -91,8 +108,8 @@ powershell -ExecutionPolicy Bypass -File .\register_task.ps1
 .venv\Scripts\python.exe build_site.py
 ```
 
-> Netlify はビルド時のみ更新されるため、リアルタイム更新ではなく1日1回程度の更新です。
-> 常時ローカル運用ならタスクスケジューラ版（上記）で十分です。
+> クラウド／Netlify はビルド時のみ更新（1日数回）。よりこまめに更新したい場合は
+> ローカルのタスクスケジューラ版（上記）を併用してください。
 
 ---
 
@@ -129,7 +146,7 @@ nyk-stock-predictor/
 ├─ runtime.txt             Netlify の Python バージョン
 ├─ requirements.txt
 ├─ .github/workflows/
-│  └─ netlify-rebuild.yml  平日18:15 JST に Netlify を再ビルド
+│  └─ forecast.yml        クラウドで情報源取得→予測→Netlify公開（平日18:15/21:15 JST）
 ├─ nyk_predictor/
 │  ├─ config.py            銘柄・URL・モデルパラメータ
 │  ├─ prices.py            株価取得・テクニカル指標

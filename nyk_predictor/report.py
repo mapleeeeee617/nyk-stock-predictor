@@ -93,6 +93,17 @@ HTML_TEMPLATE = Template("""<!doctype html>
  a{color:#1f3b73;overflow-wrap:anywhere}
  .disc{background:#fff8e5;border:1px solid #f0dca0;border-radius:6px;
        padding:12px;font-size:.82rem;margin-top:24px}
+ .note{font-size:.83rem;color:#555;background:#f0f3f8;border-radius:6px;
+       padding:9px 11px;margin:0 0 10px}
+ .lead{font-size:.9rem;color:#444;margin:8px 0 0}
+ details.glossary{margin-top:14px;border:1px solid #e2e2e2;border-radius:8px;background:#fff}
+ details.glossary>summary{cursor:pointer;padding:12px 16px;font-weight:600;font-size:.98rem;list-style:none}
+ details.glossary>summary::-webkit-details-marker{display:none}
+ details.glossary>summary::before{content:"▸ ";color:#1f3b73}
+ details.glossary[open]>summary::before{content:"▾ "}
+ details.glossary .gbody{padding:0 16px 14px}
+ details.glossary dt{font-weight:600;margin-top:12px}
+ details.glossary dd{margin:2px 0 0;font-size:.9rem;color:#444}
  .scrollhint{display:none;font-size:.78rem;color:#888;margin:2px 2px 0}
  @media (max-width:640px){
    body{line-height:1.5}
@@ -112,21 +123,35 @@ HTML_TEMPLATE = Template("""<!doctype html>
    img{border-color:#333}
    .up{color:#4ecb71}.down{color:#ff6b6b}
    .disc{background:#2b2717;border-color:#5c5326}
+   .note{background:#20242b;color:#c2c7cd}
+   .lead{color:#c2c7cd}
+   details.glossary{background:#1e2126;border-color:#333}
+   details.glossary dd{color:#c2c7cd}
+   details.glossary>summary::before{color:#8ab4ff}
  }
 </style></head><body><div class="wrap">
 
 <h1>{{ company }}（{{ ticker }}） 株価予測レポート</h1>
 <div class="muted">生成日時 {{ generated }} ／ 価格基準日 {{ f.as_of }} ／ 現値 <b>{{ "{:,.0f}".format(f.spot) }} 円</b></div>
+<p class="lead">公式ニュース・報道・株価データを自動収集し、統計モデルで先行き{{ f.horizons|length }}期間の株価の
+<b>分布</b>（当たり／外れの一点予想ではなく、ありそうな範囲）を推計したものです。
+用語は末尾の「<a href="#glossary">用語の説明</a>」を参照してください。</p>
 
-<h2>1. 予測サマリー（モンテカルロ 20,000 パス）</h2>
+<h2>1. 予測サマリー</h2>
 <div class="card">
+<p class="note"><b>モンテカルロ・シミュレーション</b>とは、株価が今後たどりうる道のりを乱数で
+{{ "{:,}".format(mc_paths) }}通り試算し、その結果の散らばりから確率的な見通しを読み取る手法です。<br>
+・<b>予測中央値</b>＝2万通りのちょうど真ん中の値（大きく外れた値に引っ張られにくい中心）<br>
+・<b>下限(10%)／上限(90%)</b>＝結果の約8割がこの範囲に収まる、という幅。<u>この幅の広さが不確実性の大きさ</u>です<br>
+・<b>上昇確率</b>＝2万通りのうち現値より高く終わった割合<br>
+・<b>期待リターン</b>＝2万通りの平均値の変化率</p>
 <div class="scrollhint">← 表は横スクロールできます →</div>
 <div class="table-scroll">
 <table>
-<tr><th class="l">ホライズン</th><th>予測中央値</th><th>期待リターン</th><th>下限(10%)</th><th>上限(90%)</th><th>上昇確率</th>{% if f.arima_available %}<th>ARIMA点予測</th>{% endif %}</tr>
+<tr><th class="l">ホライズン</th><th>予測中央値</th><th>期待リターン</th><th>下限(10%)</th><th>上限(90%)</th><th>上昇確率</th>{% if f.arima_available %}<th>参考:ARIMA</th>{% endif %}</tr>
 {% for name, h in f.horizons.items() %}
 <tr>
- <td class="l">{{ name }}（{{ h.days }}営業日）</td>
+ <td class="l">{{ name }}（{{ h.days }}営業日先）</td>
  <td>{{ "{:,.0f}".format(h.median) }} 円</td>
  <td class="{{ 'up' if h.expected_return_pct>=0 else 'down' }}">{{ "%+.1f"|format(h.expected_return_pct) }}%</td>
  <td>{{ "{:,.0f}".format(h.p10) }} 円<br><span class="muted">{{ "%+.1f"|format(h.band_low_pct) }}%</span></td>
@@ -137,7 +162,12 @@ HTML_TEMPLATE = Template("""<!doctype html>
 {% endfor %}
 </table>
 </div>
-<p class="muted">年率換算ドリフト {{ f.total_drift_annualized_pct }}%（ベースライン {{ f.baseline_drift_pct }}% ＋ ニュース補正 {{ f.sentiment_drift_pct }}% ＋ 平均回帰補正 {{ f.meanrev_drift_pct }}%） ／ 年率ボラティリティ {{ f.annualized_vol_pct }}% ／ 直近トレンド（年率）{{ f.recent_trend_annualized_pct }}%</p>
+{% if f.arima_available %}<p class="muted">「参考:ARIMA」= 時系列モデル {{ f.arima_spec }} による別方式の点予測（年率ドリフト {{ f.arima_drift_annualized_pct }}%）。モンテカルロとは独立の目安です。</p>{% endif %}
+<p class="muted"><b>ドリフト</b>（モデルが想定する年率の方向性）{{ f.total_drift_annualized_pct }}%
+＝ ベースライン {{ f.baseline_drift_pct }}%（過去トレンド＋ARIMA）
+＋ ニュース補正 {{ f.sentiment_drift_pct }}%
+＋ 平均回帰補正 {{ f.meanrev_drift_pct }}%（買われすぎ／売られすぎの揺り戻し）。<br>
+<b>ボラティリティ</b>（値動きの激しさ、年率）{{ f.annualized_vol_pct }}% ／ 直近トレンドは年率換算で {{ f.recent_trend_annualized_pct }}%。</p>
 </div>
 
 <h2>2. チャート</h2>
@@ -145,6 +175,10 @@ HTML_TEMPLATE = Template("""<!doctype html>
 
 <h2>3. テクニカル状況</h2>
 <div class="card">
+<p class="note"><b>テクニカル指標</b>＝過去の株価・出来高だけから計算する売買の目安。
+<b>RSI</b>は0〜100で「買われすぎ(70以上)／売られすぎ(30以下)」、
+<b>移動平均</b>は一定期間の平均株価の線、
+<b>HV20</b>は直近20日の値動きの荒さ（年率）です。</p>
 <p>終値 {{ "{:,.0f}".format(t.close) }} 円（前日比 <span class="{{ 'up' if t.change_pct>=0 else 'down' }}">{{ "%+.2f"|format(t.change_pct) }}%</span>）
 {% if t.rsi14 %}／ RSI(14) {{ "%.0f"|format(t.rsi14) }}{% endif %}
 {% if t.hv20 %}／ HV20 {{ "%.0f"|format(t.hv20*100) }}%{% endif %}</p>
@@ -153,6 +187,9 @@ HTML_TEMPLATE = Template("""<!doctype html>
 
 <h2>4. ニュース・センチメント</h2>
 <div class="card">
+<p class="note"><b>センチメント</b>＝ニュース見出しに含まれる語（「増配」「上方修正」＝プラス、
+「減益」「事故」＝マイナスなど）を集計した強気・弱気の度合い。
+-1（非常に弱気）〜 +1（非常に強気）。新しいニュースほど重く数えています。</p>
 <p>総合センチメント <span class="pill">{{ "%+.2f"|format(n.sentiment) }}</span>
 （-1〜+1、対象 {{ n.n_items }} 件 / スコア付与 {{ n.n_scored }} 件、信頼度 {{ "%.2f"|format(n.confidence) }}）</p>
 {% if n.events %}<p class="muted">検出イベント: {% for k,v in n.events.items() %}{{ k }}×{{ v }}{% if not loop.last %} ／ {% endif %}{% endfor %}</p>{% endif %}
@@ -169,7 +206,51 @@ HTML_TEMPLATE = Template("""<!doctype html>
 {% endfor %}
 </ul></div>
 
-<div class="disc"><b>免責事項:</b> {{ disclaimer }}</div>
+<details class="glossary" id="glossary">
+<summary>用語の説明</summary>
+<div class="gbody"><dl>
+<dt>モンテカルロ・シミュレーション</dt>
+<dd>将来の株価が進みうる経路を乱数で膨大な回数（本レポートは {{ "{:,}".format(mc_paths) }} 回）試し、
+その結果の分布から「中央値」「レンジ」「上昇確率」を読み取る手法。1つの数字を当てにいくのではなく、
+起こりうる範囲を見るための道具です。</dd>
+<dt>幾何ブラウン運動（GBM）</dt>
+<dd>モンテカルロで株価経路を作るときの標準的な数式モデル。「一定の方向性（ドリフト）＋
+ランダムな揺れ（ボラティリティ）」で価格が動くと仮定します。</dd>
+<dt>ドリフト</dt>
+<dd>モデルが想定する株価の平均的な方向性（年率）。過去トレンド・ARIMA・ニュース・平均回帰を
+合成し、暴走を防ぐため上下 ±{{ max_drift_pct }}% で頭打ちにしています。</dd>
+<dt>ボラティリティ</dt>
+<dd>値動きの激しさ。数値が大きいほど予測レンジも広がります。直近約60営業日の
+値動きから年率換算で推定しています。</dd>
+<dt>ヒストリカル・ボラティリティ（HV）</dt>
+<dd>過去の実際の値動きから計算したボラティリティ。HV20 は直近20日ぶん。</dd>
+<dt>パーセンタイル（10% / 90%）</dt>
+<dd>結果を小さい順に並べたときの位置。10%点＝下から1割、90%点＝下から9割。
+その間（8割）が「ありそうなレンジ」。</dd>
+<dt>期待リターン / 中央値</dt>
+<dd>期待リターンは全シナリオの平均の変化率、中央値はちょうど真ん中のシナリオ。
+分布が偏ると両者はずれます。</dd>
+<dt>ARIMA</dt>
+<dd>時系列データ（株価そのものの並び）から自動でパターンを学ぶ定番の統計モデル。
+本レポートではモンテカルロとは別方式の「参考値」として併記しています。</dd>
+<dt>センチメント</dt>
+<dd>ニュース見出しの語をプラス・マイナスで採点し集計した強気／弱気の度合い（-1〜+1）。
+外部AIは使わず、海運・財務用語の辞書で判定しています。</dd>
+<dt>平均回帰</dt>
+<dd>行きすぎた株価が平均へ戻ろうとする傾向。RSI が極端なとき、予測を逆方向へ少し補正します。</dd>
+<dt>RSI</dt>
+<dd>0〜100 の指標。70以上で買われすぎ、30以下で売られすぎとされます。</dd>
+<dt>MACD</dt>
+<dd>短期と長期の移動平均の差から売買タイミングを見る指標。</dd>
+<dt>移動平均（25日・75日）</dt>
+<dd>過去25日・75日の平均株価の線。短期線が長期線を上抜けるのがゴールデンクロス、
+下抜けるのがデッドクロス。</dd>
+</dl></div>
+</details>
+
+<div class="disc"><b>免責事項:</b> {{ disclaimer }}
+<br>方向（上がるか下がるか）の的中率は概ね5割前後で、当てにいくものではありません。
+本レポートの価値は「変動レンジと材料の把握」にあります。</div>
 <div class="muted" style="margin-top:10px">nyk-stock-predictor v{{ version }}</div>
 </div></body></html>
 """)
@@ -209,6 +290,8 @@ def _build_ctx(technical, news_items, news_score, forecast, chart_name, now):
         "chart_name": chart_name,
         "disclaimer": DISCLAIMER,
         "version": __version__,
+        "mc_paths": config.MC_PATHS,
+        "max_drift_pct": round(config.MAX_ANNUAL_DRIFT * 100),
     }
 
 

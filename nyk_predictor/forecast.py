@@ -41,25 +41,39 @@ def _recent_trend_annualized(close: pd.Series) -> float:
 
 
 def _arima_view(close: pd.Series, max_days: int) -> dict | None:
+    """対数株価に対する ARIMA 予測。
+
+    trend="t"（決定論的な線形トレンド＝ドリフト項）を入れることで、
+    予測がホライズンごとに動く（従来の (1,1,1) では差分系列がすぐ定常化し
+    多期先の点予測がほぼ横ばい＝全ホライズン同値になっていた）。
+    """
     try:
         from statsmodels.tsa.arima.model import ARIMA
     except Exception:
         return None
     y = np.log(close.tail(400).values)
-    try:
-        res = ARIMA(y, order=(1, 1, 1)).fit()
-        fc = res.get_forecast(steps=max_days)
-        mean = np.exp(fc.predicted_mean)
-        ci = np.exp(fc.conf_int(alpha=0.2))
-        ann_drift = float((np.log(mean[-1]) - y[-1]) / max_days * config.TRADING_DAYS_PER_YEAR)
-        return {
-            "mean": mean,
-            "low": ci[:, 0],
-            "high": ci[:, 1],
-            "ann_drift": ann_drift,
-        }
-    except Exception:
-        return None
+    # ドリフト項付きを優先し、収束しない場合は素の階差モデルへフォールバック
+    for order, trend in [((1, 1, 1), "t"), ((0, 1, 0), "t"), ((1, 1, 1), None)]:
+        try:
+            res = ARIMA(y, order=order, trend=trend).fit()
+            fc = res.get_forecast(steps=max_days)
+            mean = np.exp(np.asarray(fc.predicted_mean))
+            ci = np.exp(np.asarray(fc.conf_int(alpha=0.2)))
+            if not np.all(np.isfinite(mean)):
+                continue
+            ann_drift = float(
+                (np.log(mean[-1]) - y[-1]) / max_days * config.TRADING_DAYS_PER_YEAR
+            )
+            return {
+                "mean": mean,
+                "low": ci[:, 0],
+                "high": ci[:, 1],
+                "ann_drift": ann_drift,
+                "spec": f"ARIMA{order}" + (f", trend={trend}" if trend else ""),
+            }
+        except Exception:
+            continue
+    return None
 
 
 def _clip(x: float, lim: float) -> float:
@@ -149,6 +163,8 @@ def build_forecast(prices: pd.DataFrame, news_score: dict,
         "meanrev_drift_pct": round(meanrev_drift * 100, 2),
         "total_drift_annualized_pct": round(mu_ann * 100, 2),
         "arima_available": arima is not None,
+        "arima_spec": arima["spec"] if arima else None,
+        "arima_drift_annualized_pct": round(arima["ann_drift"] * 100, 2) if arima else None,
         "horizons": horizons,
         "cone": cone,
     }

@@ -1,0 +1,87 @@
+name: 予測レポート更新
+
+# 情報源（公式ニュース・報道・株価）を取り直して予測を再計算し、
+# 生成した静的サイト public/ を公開する。
+#
+# 実行タイミング:
+#   - 平日 09:15 / 12:15 UTC（= 18:15 / 21:15 JST）の定期実行
+#   - main への push（コード変更時）
+#   - 手動実行（Actions タブ → Run workflow）
+#
+# 公開先の設定（いずれか / 未設定でも build は走り artifact に残る）:
+#   A) Netlify へ直接デプロイ（推奨・確実）
+#      リポジトリ Secrets に NETLIFY_AUTH_TOKEN と NETLIFY_SITE_ID を登録
+#        NETLIFY_AUTH_TOKEN: Netlify → User settings → Applications → New access token
+#        NETLIFY_SITE_ID   : 対象サイト → Site configuration → Site information → Site ID
+#   B) Netlify のビルドフックを叩く（Netlify 側で build_site.py を実行）
+#      Secrets に NETLIFY_BUILD_HOOK（Site configuration → Build hooks で発行した URL）
+
+on:
+  schedule:
+    - cron: "15 9 * * 1-5"
+    - cron: "15 12 * * 1-5"
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: forecast-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+      NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 株価キャッシュの復元（取得失敗時のフォールバック用）
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: nyk-prices-${{ github.run_id }}
+          restore-keys: |
+            nyk-prices-
+
+      - name: 依存パッケージのインストール
+        run: pip install -r requirements.txt
+
+      - name: 情報源の取得と予測の再計算（public/ を生成）
+        run: python build_site.py
+
+      - name: サイトを artifact として保存
+        uses: actions/upload-artifact@v4
+        with:
+          name: forecast-site
+          path: public/
+          retention-days: 14
+
+      - name: Netlify へ直接デプロイ（A）
+        if: ${{ env.NETLIFY_AUTH_TOKEN != '' && env.NETLIFY_SITE_ID != '' }}
+        run: |
+          npx --yes netlify-cli@17 deploy \
+            --dir=public --prod \
+            --message "auto forecast $(date -u '+%Y-%m-%dT%H:%MZ')"
+
+      - name: Netlify ビルドフックを起動（B）
+        if: ${{ env.NETLIFY_AUTH_TOKEN == '' && env.NETLIFY_BUILD_HOOK != '' }}
+        run: |
+          curl -fsSL -X POST -d '{}' "$NETLIFY_BUILD_HOOK"
+          echo "Netlify ビルドをトリガーしました。"
+
+      - name: 公開先が未設定の場合の案内
+        if: ${{ env.NETLIFY_AUTH_TOKEN == '' && env.NETLIFY_BUILD_HOOK == '' }}
+        run: |
+          echo "::notice::公開先の Secrets が未設定です。生成物は artifact 'forecast-site' から取得できます。"
+          echo "::notice::NETLIFY_AUTH_TOKEN + NETLIFY_SITE_ID（推奨）または NETLIFY_BUILD_HOOK を登録してください。"
