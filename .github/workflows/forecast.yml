@@ -68,9 +68,11 @@ jobs:
           retention-days: 14
 
       - name: Netlify へ直接デプロイ（A）
+        # NETLIFY_SITE_ID には Site ID でもサイト名（xxx.netlify.app の xxx 部分）でも可
         if: ${{ env.NETLIFY_AUTH_TOKEN != '' && env.NETLIFY_SITE_ID != '' }}
         run: |
           npx --yes netlify-cli@17 deploy \
+            --site "$NETLIFY_SITE_ID" \
             --dir=public --prod \
             --message "auto forecast $(date -u '+%Y-%m-%dT%H:%MZ')"
 
