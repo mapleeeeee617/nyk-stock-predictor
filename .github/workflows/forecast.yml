@@ -4,7 +4,7 @@ name: 予測レポート更新
 # 生成した静的サイト public/ を公開する。
 #
 # 実行タイミング:
-#   - 平日 09:15 / 12:15 UTC（= 18:15 / 21:15 JST）の定期実行
+#   - 平日 09:15 UTC（= 18:15 JST）の定期実行（Netlifyの無料枠クレジット節約のため1日1回）
 #   - main への push（コード変更時）
 #   - 手動実行（Actions タブ → Run workflow）
 #
@@ -19,7 +19,6 @@ name: 予測レポート更新
 on:
   schedule:
     - cron: "15 9 * * 1-5"
-    - cron: "15 12 * * 1-5"
   push:
     branches: [main]
   workflow_dispatch: {}
